@@ -215,6 +215,7 @@ namespace NeuralNetworkExample
         static void Main(string[] args)
         {
 
+            
             Tensorflow.tensorflow tf_operator = new Tensorflow.tensorflow();
             Tensorflow.Graph tf_graph = new Tensorflow.Graph();
 
@@ -243,52 +244,57 @@ namespace NeuralNetworkExample
             Tensorflow.Keras.Engine.IModel critic_net = critic.critic_network;
             Tensorflow.Keras.Engine.IModel actor_net = actor.actor_network;
 
+            toy_environment env_01 = new toy_environment();
+            double[] state1 = env_01.reset();
+            Tensorflow.Tensor tf_state1 = tf_operator.convert_to_tensor(state1, Tensorflow.TF_DataType.TF_FLOAT);
 
-
-            using (Tensorflow.Gradients.GradientTape tape = tf_operator.GradientTape())
-
+           
+               
+            for (int epoch = 0; epoch <= 3; epoch++)
             {
-                
 
-                for (int epoch = 0; epoch <= 3; epoch++)
+
+                // epoch training
+                // initiate a new env
+                toy_environment env_0 = new toy_environment();
+                double[] state = env_0.reset();
+                double episode_reward = 0;
+
+                using (Tensorflow.Gradients.GradientTape t_a = new Tensorflow.Gradients.GradientTape(),  t_b = new Tensorflow.Gradients.GradientTape())
                 {
+                    
 
-
-                    // epoch training
-                    // initiate a new env
-                    toy_environment env_0 = new toy_environment();
-                    double[] state = env_0.reset();
-                    double episode_reward = 0;
-
-                    for (int timestep = 0; timestep <= 3; timestep++)
+                    for (int timestep = 0; timestep <= 0; timestep++)
                     {
 
                         Console.WriteLine("-------------Episode {0} Step {1}-------------", epoch.ToString(), timestep.ToString());
 
                         Tensorflow.Tensor tf_state = tf_operator.convert_to_tensor(state, Tensorflow.TF_DataType.TF_FLOAT);
                         tf_state = tf_operator.expand_dims(tf_state, 0);
-                        tape.watch(tf_state);
 
+                        t_a.watch(tf_state);
+                        t_b.watch(tf_state);
                         Tensorflow.Tensor action_pros = actor_net.Apply(tf_state, training: true);
-
-                        Tensorflow.Tensor critic_value = critic_net.Apply(tf_state, training: true);
-                        tape.watch(action_pros);tape.watch(critic_value);
-
-
                         
+                        
+                        Tensorflow.Tensor critic_value = critic_net.Apply(tf_state, training: true);
+
+
+
+
 
                         int action = statis_funcs.random_choice(action_pros);
 
 
                         Console.WriteLine("Action Pros " + action_pros.ToString());
                         Console.WriteLine("Critic Value " + critic_value.ToString());
-                        double action_prob = action_pros.numpy()[0,action];
+                        double action_prob = action_pros.numpy()[0, action];
 
 
                         double action_log_prob = Math.Log(action_prob);
                         // Note: need to recheck the paper or pseudo
-                        critic_value_history.Add(critic_value[0,action]);
-                        Console.WriteLine("Action Q  "+ critic_value[0, action].ToString());
+                        critic_value_history.Add(critic_value[0, action]);
+                        Console.WriteLine("Action Q  " + critic_value[0, action].ToString());
                         action_probs_history.Add(action_log_prob);
 
 
@@ -298,9 +304,6 @@ namespace NeuralNetworkExample
                         Console.WriteLine("new state {0} reward {1}", new_state.ToString(), reward.ToString());
                         rewards_history.Add(reward);
                         episode_reward += reward;
-
-                        Tensorflow.Tensor criticc_loss = huber_api.Apply(tf_operator.convert_to_tensor(reward, Tensorflow.TF_DataType.TF_FLOAT), critic_value[0, action]);
-                        Tensorflow.Tensor[] criticc_gradient = tape.gradient(criticc_loss, critic_net.TrainableVariables);
 
                         // update the state
                         state = new_state;
@@ -342,36 +345,37 @@ namespace NeuralNetworkExample
                         Tensorflow.Tensor temporal_difference = return_v - predict_v;
                         Console.WriteLine("Temporal Difference {0}", temporal_difference.ToString());
                         Tensorflow.Tensor actor_loss = -tf_operator.convert_to_tensor(action_probs_history[p], Tensorflow.TF_DataType.TF_FLOAT) * temporal_difference;
-                        Tensorflow.Tensor critic_loss = huber_api.Apply(return_v, predict_v);
+                        Tensorflow.Tensor critic_loss = temporal_difference * temporal_difference;
                         Console.WriteLine("Actor loss {0}  Critic Loss {1} ", actor_loss.ToString(), critic_loss.ToString());
                         actor_loss_sum = actor_loss_sum + actor_loss;
                         critic_loss_sum = critic_loss_sum + critic_loss;
                     }
-                    tape.watch(actor_loss_sum);tape.watch(critic_loss_sum);
-                  
                     Console.WriteLine("SUM ACTOR LOSS " + actor_loss_sum.ToString());
-           
+
                     Console.WriteLine("SUM Critic LOSS " + critic_loss_sum.ToString());
-                    Tensorflow.Tensor[] actor_gradient = tape.gradient(actor_loss_sum, actor_net.TrainableVariables);
+                    Tensorflow.Tensor[] actor_gradient = t_a.gradient(actor_loss_sum, actor_net.TrainableVariables);
+
+                    Tensorflow.Tensor[] critic_gradient = t_b.gradient(critic_loss_sum, critic_net.TrainableVariables);
+
+                    Console.WriteLine("Optimization finished. Press Enter to exit...");
+                    Console.ReadLine();
 
                     
-                    Tensorflow.Tensor[] critic_gradient = tape.gradient(critic_loss_sum, critic_net.TrainableVariables);
-
-
-
-                    //var zip_actor = Enumerable.Zip(actor_gradient, actor_net.TrainableVariables, (g, n) => (g, n));
-                    //optimizer_actor.apply_gradients(zip_actor);
-
-
-                    var zip_critic = Enumerable.Zip(critic_gradient, critic_net.TrainableVariables, (g, n) => (g, n));
-                    optimizer_critic.apply_gradients(zip_critic);
 
 
                 }
-                Console.WriteLine("Optimization finished. Press Enter to exit...");
-                Console.ReadLine();
+
+                
+                
+                  
+                
+                
+
 
             }
+            
+
+            
             
 
 
