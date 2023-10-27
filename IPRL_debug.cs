@@ -12,6 +12,8 @@ using System.Windows.Forms;
 //using Tensorflow.Keras.Layers;
 //using Tensorflow.Keras.Layers;
 using Tensorflow.Keras;
+using Tensorflow;
+using static Tensorflow.Binding;
 //using static Tensorflow.KerasApi;
 
 
@@ -144,7 +146,7 @@ namespace NeuralNetworkExample
             double step_reward = old_cost - new_cost;
             
             
-            Console.WriteLine("Old cost {0} new cost {1}", old_cost.ToString(), new_cost.ToString());
+            //Console.WriteLine("Old cost {0} new cost {1}", old_cost.ToString(), new_cost.ToString());
 
             state = new_state;
             if (new_cost == 0)
@@ -226,14 +228,13 @@ namespace NeuralNetworkExample
             //Tensorflow.Gradients.GradientTape tape_ac = tf_operator.GradientTape(); //Gradient Tape Set Record operations for automatic differentiation
             //Tensorflow.Gradients.GradientTape tape_cc = tf_operator.GradientTape();
             Tensorflow.Keras.Losses.Huber huber_api = new Tensorflow.Keras.Losses.Huber(reduction: Tensorflow.Keras.Losses.ReductionV2.SUM);
-            Tensorflow.Keras.Optimizers.Adam optimizer_actor = new Tensorflow.Keras.Optimizers.Adam(learning_rate: (float)0.0001);
-            Tensorflow.Keras.Optimizers.Adam optimizer_critic = new Tensorflow.Keras.Optimizers.Adam(learning_rate: (float)0.0001);
+            Tensorflow.Keras.Optimizers.Adam optimizer_actor = new Tensorflow.Keras.Optimizers.Adam(learning_rate: (float)1e-5);
+            Tensorflow.Keras.Optimizers.Adam optimizer_critic = new Tensorflow.Keras.Optimizers.Adam(learning_rate: (float)1e-7);
 
 
             SF statis_funcs = new SF();
-            List<Tensorflow.Tensor> critic_value_history = new List<Tensorflow.Tensor>();
-            List<double> action_probs_history = new List<double>();
-            List<double> rewards_history = new List<double>();
+            
+            
             double running_reward = 0;
             int episode_count = 0;
             double gamma = 0.99;
@@ -248,9 +249,9 @@ namespace NeuralNetworkExample
             double[] state1 = env_01.reset();
             Tensorflow.Tensor tf_state1 = tf_operator.convert_to_tensor(state1, Tensorflow.TF_DataType.TF_FLOAT);
 
-           
+            StreamWriter training_writer = new StreamWriter(@"P:\Private\Jackie Wu Lab\Dongrong Yang\Inverse_RL\Projects\IPRL_debug\training_output.txt");
                
-            for (int epoch = 0; epoch <= 3; epoch++)
+            for (int epoch = 0; epoch <= 100000; epoch++)
             {
 
 
@@ -259,15 +260,18 @@ namespace NeuralNetworkExample
                 toy_environment env_0 = new toy_environment();
                 double[] state = env_0.reset();
                 double episode_reward = 0;
+                List<Tensor> action_probs_history = new List<Tensor>();
+                List<double> rewards_history = new List<double>();
+                List<Tensor> critic_value_history = new List<Tensor>();
 
-                using (Tensorflow.Gradients.GradientTape t_a = new Tensorflow.Gradients.GradientTape(),  t_b = new Tensorflow.Gradients.GradientTape())
+                using (Tensorflow.Gradients.GradientTape t_a = tf.GradientTape(), t_b = tf.GradientTape())
                 {
-                    
 
-                    for (int timestep = 0; timestep <= 0; timestep++)
+
+                    for (int timestep = 0; timestep <= 10; timestep++)
                     {
 
-                        Console.WriteLine("-------------Episode {0} Step {1}-------------", epoch.ToString(), timestep.ToString());
+                        //Console.WriteLine("-------------Episode {0} Step {1}-------------", epoch.ToString(), timestep.ToString());
 
                         Tensorflow.Tensor tf_state = tf_operator.convert_to_tensor(state, Tensorflow.TF_DataType.TF_FLOAT);
                         tf_state = tf_operator.expand_dims(tf_state, 0);
@@ -275,8 +279,8 @@ namespace NeuralNetworkExample
                         t_a.watch(tf_state);
                         t_b.watch(tf_state);
                         Tensorflow.Tensor action_pros = actor_net.Apply(tf_state, training: true);
-                        
-                        
+
+
                         Tensorflow.Tensor critic_value = critic_net.Apply(tf_state, training: true);
 
 
@@ -285,23 +289,26 @@ namespace NeuralNetworkExample
 
                         int action = statis_funcs.random_choice(action_pros);
 
-
+                        /*
+                        Console.WriteLine("State: {0}", tf_state.ToString());
                         Console.WriteLine("Action Pros " + action_pros.ToString());
                         Console.WriteLine("Critic Value " + critic_value.ToString());
-                        double action_prob = action_pros.numpy()[0, action];
+                        */
+                        var action_prob = action_pros[0, action];
 
 
-                        double action_log_prob = Math.Log(action_prob);
+
+                        var action_log_prob = tf.log(action_prob);
                         // Note: need to recheck the paper or pseudo
                         critic_value_history.Add(critic_value[0, action]);
-                        Console.WriteLine("Action Q  " + critic_value[0, action].ToString());
+                        //Console.WriteLine("Action Q  " + critic_value[0, action].ToString());
                         action_probs_history.Add(action_log_prob);
 
 
-                        Console.WriteLine("Action Index " + action.ToString() + "   log prob " + action_log_prob.ToString() + " Q value " + critic_value.numpy()[0][action].ToString()); ;
+                        //Console.WriteLine("Action Index " + action.ToString() + "  prob  "+action_prob.ToString()+ "   log prob " + action_log_prob.ToString() + " Q value " + critic_value.numpy()[0][action].ToString()); ;
 
                         (double[] new_state, double reward, double done) = env_0.step(action);
-                        Console.WriteLine("new state {0} reward {1}", new_state.ToString(), reward.ToString());
+                        //Console.WriteLine("new state {0} reward {1}", new_state.ToString(), reward.ToString());
                         rewards_history.Add(reward);
                         episode_reward += reward;
 
@@ -310,7 +317,8 @@ namespace NeuralNetworkExample
 
                     }
                     running_reward = 0.05 * episode_reward + (1 - 0.95) * running_reward;
-
+                    Console.WriteLine("Episode {0} running reward {1}", epoch.ToString(), running_reward.ToString());
+                    training_writer.WriteLine(episode_reward.ToString()+","+ running_reward.ToString());
 
 
 
@@ -322,7 +330,7 @@ namespace NeuralNetworkExample
                     double discounted_sum = 0;
                     for (int i = rewards_history.Count - 1; i > -1; i--)
                     {
-                        Console.WriteLine(i.ToString() + "   " + rewards_history[i].ToString());
+                        //Console.WriteLine(i.ToString() + "   " + rewards_history[i].ToString());
                         discounted_sum = rewards_history[i] + gamma * discounted_sum;
                         Tensorflow.Tensor tensor_dis_sum = tf_operator.convert_to_tensor(discounted_sum, Tensorflow.TF_DataType.TF_FLOAT);
                         return_list.Add(tensor_dis_sum);
@@ -340,43 +348,49 @@ namespace NeuralNetworkExample
                         Tensorflow.Tensor predict_v = critic_value_history[p];
                         return_v = tf_operator.expand_dims(return_v, 0);
                         predict_v = tf_operator.expand_dims(predict_v, 0);
-                        Console.WriteLine("RETURN VALUE  " + return_v.ToString());
-                        Console.WriteLine("PREDICTION " + predict_v.ToString());
+                        //Console.WriteLine("RETURN VALUE  " + return_v.ToString());
+                        //Console.WriteLine("PREDICTION " + predict_v.ToString());
                         Tensorflow.Tensor temporal_difference = return_v - predict_v;
-                        Console.WriteLine("Temporal Difference {0}", temporal_difference.ToString());
+                        //Console.WriteLine("Temporal Difference {0}", temporal_difference.ToString());
                         Tensorflow.Tensor actor_loss = -tf_operator.convert_to_tensor(action_probs_history[p], Tensorflow.TF_DataType.TF_FLOAT) * temporal_difference;
                         Tensorflow.Tensor critic_loss = temporal_difference * temporal_difference;
-                        Console.WriteLine("Actor loss {0}  Critic Loss {1} ", actor_loss.ToString(), critic_loss.ToString());
+                        //Console.WriteLine("Actor loss {0}  Critic Loss {1} ", actor_loss.ToString(), critic_loss.ToString());
                         actor_loss_sum = actor_loss_sum + actor_loss;
                         critic_loss_sum = critic_loss_sum + critic_loss;
                     }
-                    Console.WriteLine("SUM ACTOR LOSS " + actor_loss_sum.ToString());
+                    //Console.WriteLine("SUM ACTOR LOSS " + actor_loss_sum.ToString());
 
-                    Console.WriteLine("SUM Critic LOSS " + critic_loss_sum.ToString());
+                    //Console.WriteLine("SUM Critic LOSS " + critic_loss_sum.ToString());
                     Tensorflow.Tensor[] actor_gradient = t_a.gradient(actor_loss_sum, actor_net.TrainableVariables);
+                    optimizer_actor.apply_gradients(zip(actor_gradient,actor_net.TrainableVariables));
+
 
                     Tensorflow.Tensor[] critic_gradient = t_b.gradient(critic_loss_sum, critic_net.TrainableVariables);
+                    optimizer_critic.apply_gradients(zip(critic_gradient, critic_net.TrainableVariables));
 
-                    Console.WriteLine("Optimization finished. Press Enter to exit...");
-                    Console.ReadLine();
+                    
 
                     
 
 
                 }
+                Console.WriteLine("Epidose {0} reward {1}", epoch.ToString(),episode_reward.ToString());
+                //Console.WriteLine("finish one episode.");
 
-                
-                
-                  
-                
-                
+
+
+
+
 
 
             }
-            
+            training_writer.Close();
+            Console.WriteLine("Optimization finished. Press Enter to exit...");
+            Console.ReadLine();
 
-            
-            
+
+
+
 
 
 
